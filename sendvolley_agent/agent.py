@@ -28,6 +28,7 @@ from sendvolley_agent import db, twilio_client
 from sendvolley_agent.config import settings
 from sendvolley_agent.db import Fact
 from sendvolley_agent.errors import ConfigurationError
+from sendvolley_agent.tools.sendvolley import generate_copy
 
 logger = logging.getLogger(__name__)
 
@@ -103,16 +104,6 @@ async def close() -> None:
 # an is_error tool_result (§11.2). Stubs are here so the tool catalog is
 # structurally complete and Claude knows what tools exist.
 # ---------------------------------------------------------------------------
-
-async def generate_copy(client_id: str, brief: str, num_variants: int = 3) -> str:
-    """Generate cold-email variants for a campaign brief via the SendVolley MCP Worker.
-
-    Args:
-        brief: The campaign brief — ICP, value prop, tone notes.
-        num_variants: How many variants to return.
-    """
-    raise NotImplementedError("Tool generate_copy not yet implemented")
-
 
 async def apollo_search_people(client_id: str, query: str, limit: int = 25) -> str:
     """Search Apollo for prospects matching a natural-language query.
