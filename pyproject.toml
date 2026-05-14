@@ -5,6 +5,8 @@ description = "Per-client SendVolley WhatsApp agent (FastAPI + Anthropic SDK)."
 requires-python = ">=3.12"
 dependencies = [
     "pydantic-settings>=2.0",
+    "httpx>=0.27",
+    "twilio>=9.0",
 ]
 
 [build-system]

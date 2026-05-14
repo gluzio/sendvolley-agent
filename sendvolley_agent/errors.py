@@ -21,3 +21,8 @@ class ToolExecutionError(RuntimeError):
 class WebhookAuthenticationError(RuntimeError):
     """Raised when an inbound Twilio webhook fails HMAC signature or source-IP
     verification (§4.4)."""
+
+
+class TwilioSendError(RuntimeError):
+    """Raised when a Twilio outbound send fails — either Twilio rejected the request
+    (4xx with error code) or all transport retries were exhausted (5xx / network)."""
