@@ -77,7 +77,7 @@ It is **not** a general-purpose agent, **not** a Hermes-style framework, **not**
    c. Builds a system prompt that includes the SendVolley agent's role + the user's persistent facts.
    d. Calls Claude via the Anthropic SDK with the message, history, and the **bound tool catalog** (see §6).
    e. If Claude returns a tool-use block: executes the tool, captures the result, re-calls Claude with the tool result appended. Loops until Claude returns text-only (max iterations: 30, hard cap).
-   f. Every Claude call and every tool call is logged to SQLite's `tool_calls` table.
+   f. Every Claude API call is logged to `llm_calls`; every tool invocation is logged to `tool_calls`. Both tables share `turn_id` so the full sequence of LLM calls and tool executions for a turn can be reconstructed by joining on it.
 6. The final text response is sent to Twilio's WhatsApp API as an outbound message. The outbound message is persisted to `conversations`.
 7. Twilio delivers to the client's WhatsApp.
 Concurrency note. Multiple agent turns may run concurrently for the same client (e.g. if the client sends two messages in quick succession). This is expected and supported. Each task owns its own SQLite reads/writes; conflicts are handled by SQLite's locking. The agent loop is not synchronized across turns within a client.
@@ -210,7 +210,8 @@ Defined fully in `schema.sql`. Summary:
 
 - `clients` — one row per client this VPS serves (v1: always exactly one row).
 - `conversations` — every inbound and outbound WhatsApp message.
-- `tool_calls` — every Claude call and every tool invocation, with latency, tokens, error.
+- `llm_calls` — every Claude API call (`messages.create` invocation). Columns: `id, client_id, turn_id, model, input_tokens, output_tokens, stop_reason, latency_ms, error, created_at`. `turn_id` is a UUID generated when the agent loop starts; it groups all Claude calls and tool executions within one agent turn.
+- `tool_calls` — every individual tool invocation by Claude. Columns: `id, client_id, turn_id, tool_name, tool_input (JSON), tool_result (JSON or text), is_error (bool), latency_ms, created_at`. Shares `turn_id` with `llm_calls` so the two tables can be joined to reconstruct the full sequence of Claude calls and tool executions for a turn, with per-step latency.
 - `memory_facts` — durable facts about the client (their voice, preferences, ICP, what's worked before).
 - `proposals` — agent-drafted prompt improvements awaiting human review.
 - `webhook_failures` — rejected webhook attempts (auth failures, hostile traffic).
@@ -305,8 +306,9 @@ N_HISTORY_TURNS counts individual messages (rows in conversations), not user/ass
 sqlSELECT role, content, created_at
 FROM conversations
 WHERE client_id = ?
-ORDER BY created_at DESC
+ORDER BY created_at DESC, id DESC
 LIMIT ?
+The id DESC secondary sort is the deterministic tiebreaker for rows inserted in the same millisecond (created_at is integer-ms resolution; back-to-back inserts during a single agent turn collide on it). Without the tiebreaker, SQLite's ordering within ties is unspecified and history can come back with user/assistant interleaved out of order.
 Results are reversed before being passed to the agent loop (chronological order for Claude).
 Default value: 20. Tuneable via env var. May need to drop to 10 if observed token bloat from tool-result-heavy turns becomes a problem.
 11.5 Twilio IP allowlist refresh
@@ -336,7 +338,7 @@ recall_facts returns only active (non-superseded) facts for the client.
 When AgentIterationLimitExceeded is raised in the agent loop:
 
 Log structured error event iteration_limit_exceeded with client_id, turn_id, last 3 tool calls.
-Insert a row in tool_calls with tool_name='__agent_loop__', error='iteration_limit_exceeded'.
+Insert a synthetic row in llm_calls with stop_reason='iteration_limit', latency_ms=0, input_tokens=NULL, output_tokens=NULL, and error='iteration_limit_exceeded'. No actual Claude call is made at this point — the row records the moment we stopped calling Claude. The iteration limit belongs on the LLM-call ledger, not the tool-call ledger.
 Send a Twilio reply to the client: "I'm getting stuck on this — could you give me more detail or break it into smaller steps?"
 
 Do not write to webhook_failures. That table is reserved for hostile/rejected traffic, not normal-conversation anomalies.
