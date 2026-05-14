@@ -126,7 +126,7 @@ We deliberately do NOT IP-restrict. Twilio publishes IP ranges only for SIP trun
 - ❌ **Autonomous prompt edits.** The agent CAN draft prompt-improvement proposals to `proposals/` for human review. The agent CANNOT edit the SendVolley Worker's `src/prompt.ts` directly. Ratification is always a human pushing a git commit.
 - ❌ **Browser automation.** No headless Chrome, no Playwright, no "let the agent click around websites." Prompt-injection vector, memory hog, unnecessary for cold outreach.
 - ❌ **Multi-channel messaging.** WhatsApp only in v1. No Telegram, Discord, Slack, email, SMS. Adding a second channel is an architectural change, not a small feature.
-- ❌ **Image/voice/file input.** Text WhatsApp messages only. If the client sends a photo or voice note, agent responds: "I can only process text messages right now."
+- ❌ **Image/voice/file input.** Text WhatsApp messages only. If the client sends a photo or voice note, the webhook (not the agent) responds with "I can only process text messages right now." The agent never sees media-only messages — media handling is at the webhook layer for cost and latency reasons.
 - ❌ **Multiple LLM providers.** Claude is the only model. No OpenRouter, no fallback to GPT/Gemini, no "provider abstraction layer."
 - ❌ **Task delegation / sub-agents.** No spawning child agents. The single agent loop handles everything sequentially.
 - ❌ **Per-client prompt overrides on the Worker.** One global SendVolley copy-generation prompt for all clients in v1. Per-client variants when client #5 onboards.
