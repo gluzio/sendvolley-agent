@@ -69,7 +69,10 @@ It is **not** a general-purpose agent, **not** a Hermes-style framework, **not**
 
 1. Client types into WhatsApp on their phone.
 2. Twilio receives the message, POSTs a webhook to `https://<client-id>.sendvolley.com/whatsapp` with the message body, sender info, and an HMAC signature in the `X-Twilio-Signature` header.
-3. FastAPI's `/whatsapp` handler validates **both** the Twilio HMAC signature **and** that the source IP is in Twilio's published webhook IP ranges. If either check fails → reject with 403, log the attempt.
+3. FastAPI's `/whatsapp` handler validates the Twilio HMAC signature (per §4.4) against `settings.TWILIO_WEBHOOK_URL` — the URL Twilio was configured to call, not the internal URL FastAPI sees behind Caddy. If verification fails → reject with 403, write a `webhook_failures` row with the appropriate reason.
+
+   **Idempotency:** Twilio may retry webhooks (after timeouts, after non-2xx responses, sometimes after 2xx). Each inbound message carries a unique `MessageSid`. Before persisting and enqueuing the agent, we check whether a row with that `MessageSid` already exists in `conversations`. If so, we return 200 OK without doing any work — the original request has already been processed (or is being processed). The agent loop is not idempotent itself; idempotency is enforced at the webhook entry point only.
+
 4. The validated message is persisted to SQLite's `conversations` table.
 5. The webhook handler enqueues the agent turn as a background task (asyncio.create_task) and returns 200 OK with an empty TwiML body immediately. The agent task runs the loop asynchronously and posts the outbound reply via Twilio's REST API when done. Inbound and outbound are fully decoupled — Twilio never waits for Claude. See §11.1 for the task-management pattern. The agent loop itself:
    a. Loads the last N turns of conversation history from SQLite.
@@ -108,11 +111,11 @@ The code must support this future migration cheaply. Specifically:
 - About 20 lines of code total. Don't over-abstract this — no "LLM provider plugin system." Claude is the only model we support, ever.
 
 ### 4.4 Webhook authentication
-**Belt and braces.** Every inbound Twilio webhook must pass:
-1. **HMAC signature verification** using Twilio's signing-key algorithm against the `X-Twilio-Signature` header.
-2. Source IP check — request must come from Twilio's published webhook IP ranges. The list is fetched synchronously at FastAPI startup before the app accepts traffic. If the startup fetch fails, the process exits with a non-zero code (no fail-open). On each subsequent webhook, the cache is checked: if older than 24h, an async refresh is triggered out-of-band; if that refresh fails, the existing (stale) list continues to be used and a twilio_ip_refresh_failures event is logged. See §11.5 for the implementation pattern. There is no systemd timer.
+Every inbound Twilio webhook must pass:
 
-Failed verification: respond 403, log to `webhook_failures` table with timestamp, source IP, header dump (redacted). No retry-friendly responses; this is hostile-traffic territory.
+- **HMAC signature verification** using Twilio's signing-key algorithm against the `X-Twilio-Signature` header. The signed URL is `settings.TWILIO_WEBHOOK_URL` (the public HTTPS URL Twilio is configured to call), NOT the URL FastAPI sees (which is HTTP behind Caddy's TLS termination). Mismatch on either signature or URL → respond 403, log to `webhook_failures` with reason `'signature_mismatch'` or `'missing_signature'`. No retry-friendly response.
+
+We deliberately do NOT IP-restrict. Twilio publishes IP ranges only for SIP trunking, not webhooks. HMAC verification is cryptographically authoritative and Twilio-recommended as the sole authentication mechanism. An attacker who could forge a valid signature would need our `TWILIO_AUTH_TOKEN`, at which point IP filtering provides no additional defense.
 
 ---
 
@@ -214,7 +217,7 @@ Defined fully in `schema.sql`. Summary:
 - `tool_calls` — every individual tool invocation by Claude. Columns: `id, client_id, turn_id, tool_name, tool_input (JSON), tool_result (JSON or text), is_error (bool), latency_ms, created_at`. Shares `turn_id` with `llm_calls` so the two tables can be joined to reconstruct the full sequence of Claude calls and tool executions for a turn, with per-step latency.
 - `memory_facts` — durable facts about the client (their voice, preferences, ICP, what's worked before).
 - `proposals` — agent-drafted prompt improvements awaiting human review.
-- `webhook_failures` — rejected webhook attempts (auth failures, hostile traffic).
+- `webhook_failures` — rejected webhook attempts (auth failures, hostile traffic). The `reason` column is one of: `'signature_mismatch'`, `'missing_signature'`, `'malformed_request'`.
 
 Schema is multi-tenant in shape (`client_id` column on every table) even though v1 always has one client per VPS. Cheap to write now, expensive to refactor later.
 
@@ -234,7 +237,6 @@ ANTHROPIC_KEY_MODE=ours       # "ours" or "client" (v2)
 SENDVOLLEY_WORKER_URL         # https://sendvolley-mcp.gian-31d.workers.dev
 SENDVOLLEY_WORKER_TOKEN       # sv_live_... bearer token
 
-STARTUP_TWILIO_FETCH_TIMEOUT=10
 TWILIO_ACCOUNT_SID
 TWILIO_AUTH_TOKEN
 TWILIO_WHATSAPP_NUMBER        # e.g. "whatsapp:+14155551234"
@@ -276,7 +278,7 @@ This section records the answers to questions raised during the v1 build review.
 11.1 Webhook → agent task model
 The /whatsapp handler is non-blocking. Sequence:
 
-Validate Twilio HMAC signature and source IP (reject 403 on failure).
+Validate Twilio HMAC signature (per §4.4; reject 403 on failure).
 Persist inbound message to conversations.
 Schedule the agent turn: task = asyncio.create_task(run_agent_turn(...)).
 Add the task to a module-level set _pending_tasks: set[asyncio.Task] and register task.add_done_callback(_pending_tasks.discard) to prevent garbage collection mid-flight.
@@ -311,12 +313,8 @@ LIMIT ?
 The id DESC secondary sort is the deterministic tiebreaker for rows inserted in the same millisecond (created_at is integer-ms resolution; back-to-back inserts during a single agent turn collide on it). Without the tiebreaker, SQLite's ordering within ties is unspecified and history can come back with user/assistant interleaved out of order.
 Results are reversed before being passed to the agent loop (chronological order for Claude).
 Default value: 20. Tuneable via env var. May need to drop to 10 if observed token bloat from tool-result-heavy turns becomes a problem.
-11.5 Twilio IP allowlist refresh
-The Twilio IP ranges live in a module-level cache:
-python_twilio_ips: dict = {"ranges": [...], "fetched_at": datetime}
-Startup: fetch synchronously from Twilio's docs URL before FastAPI accepts traffic. Timeout: STARTUP_TWILIO_FETCH_TIMEOUT env var (default 10s). If the fetch fails or times out, the process exits non-zero. No fail-open.
-Steady state: on each inbound webhook, check now - _twilio_ips["fetched_at"]. If older than 24h, schedule an out-of-band async refresh (do not block the request). If the refresh fails, keep the stale cache and log a twilio_ip_refresh_failure event.
-No systemd timer. The refresh is request-driven plus self-healing on restart.
+11.5 Twilio IP allowlist refresh — REMOVED
+Superseded by the §4.4 amendment: we no longer IP-restrict at all. HMAC signature verification is the sole authentication mechanism for inbound webhooks. The Twilio IP allowlist is not fetched, cached, or refreshed.
 11.6 memory_facts schema shape
 Lightly categorized free-form prose. Schema:
 sqlCREATE TABLE memory_facts (
@@ -372,7 +370,6 @@ ANTHROPIC_KEY_MODE is one of {"ours", "client"}.
 LOG_LEVEL is one of {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}.
 AGENT_MAX_ITERATIONS is a positive int, 1 ≤ value ≤ 100.
 N_HISTORY_TURNS is a positive int, 1 ≤ value ≤ 100.
-STARTUP_TWILIO_FETCH_TIMEOUT is a positive int, 1 ≤ value ≤ 60 (seconds).
 
 
 Boot-time filesystem check on DB_PATH:

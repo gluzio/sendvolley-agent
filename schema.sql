@@ -21,6 +21,8 @@ CREATE TABLE IF NOT EXISTS conversations (
 );
 CREATE INDEX IF NOT EXISTS idx_conversations_client_created
     ON conversations(client_id, created_at DESC, id DESC);  -- id DESC is the same-ms tiebreaker (§11.4)
+CREATE INDEX IF NOT EXISTS idx_conversations_message_sid
+    ON conversations(twilio_message_sid);  -- existence check for webhook idempotency (§3)
 
 CREATE TABLE IF NOT EXISTS llm_calls (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -51,7 +51,6 @@ class Settings(BaseSettings):
     # --- Infra --------------------------------------------------------------
     DB_PATH: Path = Path("/var/lib/sendvolley/state.db")
     LOG_LEVEL: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
-    STARTUP_TWILIO_FETCH_TIMEOUT: int = Field(default=10, ge=1, le=60)
 
     # --- Validators ---------------------------------------------------------
     @field_validator("SENDVOLLEY_WORKER_URL", "TWILIO_WEBHOOK_URL")
@@ -90,7 +89,7 @@ class Settings(BaseSettings):
     def _validate_twilio_sid(cls, v: str) -> str:
         if not _TWILIO_SID_RE.match(v):
             raise ValueError("must match Twilio account SID format '^AC[a-f0-9]{32}$' (case-insensitive)")
-        return v
+        return v.lower()
 
     @model_validator(mode="after")
     def _check_db_path_writeable(self) -> Settings:

@@ -82,6 +82,20 @@ def init_db() -> None:
 # Conversations
 # ---------------------------------------------------------------------------
 
+def inbound_message_exists(twilio_message_sid: str) -> bool:
+    """Return True iff an inbound (`role='user'`) row with this MessageSid is
+    already in `conversations`. Drives webhook idempotency per §3."""
+    cursor = _connect().execute(
+        """
+        SELECT 1 FROM conversations
+        WHERE twilio_message_sid = ? AND role = 'user'
+        LIMIT 1
+        """,
+        (twilio_message_sid,),
+    )
+    return cursor.fetchone() is not None
+
+
 def record_inbound_message(
     client_id: str,
     body: str,
