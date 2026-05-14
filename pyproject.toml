@@ -10,6 +10,7 @@ dependencies = [
     "fastapi>=0.110",
     "uvicorn[standard]>=0.30",
     "python-multipart>=0.0.9",
+    "anthropic>=0.40",
 ]
 
 [build-system]

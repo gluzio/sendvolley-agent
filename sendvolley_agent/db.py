@@ -52,6 +52,7 @@ class Message:
     role: str  # 'user' | 'assistant'
     content: str
     created_at: int
+    turn_id: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,6 +82,18 @@ def init_db() -> None:
 # ---------------------------------------------------------------------------
 # Conversations
 # ---------------------------------------------------------------------------
+
+def get_client_anthropic_key(client_id: str) -> str | None:
+    """Return the per-client Anthropic API key, or None if not set.
+
+    v1 always uses settings.ANTHROPIC_API_KEY (§4.3 ANTHROPIC_KEY_MODE='ours');
+    this lookup exists so v2 ('client' mode) is a config flip, not a refactor."""
+    row = _connect().execute(
+        "SELECT anthropic_api_key FROM clients WHERE id = ?",
+        (client_id,),
+    ).fetchone()
+    return row["anthropic_api_key"] if row else None
+
 
 def inbound_message_exists(twilio_message_sid: str) -> bool:
     """Return True iff an inbound (`role='user'`) row with this MessageSid is
@@ -140,7 +153,7 @@ def load_recent_messages(client_id: str, limit: int) -> list[Message]:
     deterministic tiebreaker for rows inserted in the same millisecond."""
     cursor = _connect().execute(
         """
-        SELECT id, role, content, created_at
+        SELECT id, role, content, created_at, turn_id
         FROM conversations
         WHERE client_id = ?
         ORDER BY created_at DESC, id DESC
@@ -151,7 +164,10 @@ def load_recent_messages(client_id: str, limit: int) -> list[Message]:
     rows = list(cursor.fetchall())
     rows.reverse()
     return [
-        Message(id=r["id"], role=r["role"], content=r["content"], created_at=r["created_at"])
+        Message(
+            id=r["id"], role=r["role"], content=r["content"],
+            created_at=r["created_at"], turn_id=r["turn_id"],
+        )
         for r in rows
     ]
 

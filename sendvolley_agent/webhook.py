@@ -19,6 +19,7 @@ from fastapi import APIRouter, Request, Response
 from twilio.request_validator import RequestValidator
 
 from sendvolley_agent import db, twilio_client
+from sendvolley_agent.agent import run_agent_turn as _run_agent_turn
 from sendvolley_agent.config import settings
 
 logger = logging.getLogger(__name__)
@@ -62,22 +63,6 @@ def _redact_headers(headers: dict[str, str]) -> dict[str, str]:
 
 def _twiml_ok() -> Response:
     return Response(content=_EMPTY_TWIML, media_type="application/xml", status_code=200)
-
-
-async def _run_agent_turn(
-    client_id: str, turn_id: str, from_number: str, body: str
-) -> None:
-    """Placeholder. Real implementation lands in `agent.py`; the import path
-    in `whatsapp_webhook` flips when that module exists."""
-    logger.info(
-        "agent_turn_placeholder_invoked",
-        extra={
-            "client_id": client_id,
-            "turn_id": turn_id,
-            "from_masked": _mask_from(from_number),
-            # body is deliberately not logged — it's already in `conversations`
-        },
-    )
 
 
 @router.post("/whatsapp")

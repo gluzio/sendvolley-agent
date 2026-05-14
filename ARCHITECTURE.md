@@ -205,6 +205,8 @@ Operating constraints:
 
 The full system prompt lives in `sendvolley_agent/prompts/system.py` and is iterated based on real usage. Like the Worker's `src/prompt.ts`, this prompt is part of the IP — keep it in the private repo, never commit to a public mirror.
 
+The version in this section is illustrative; the canonical text lives in `_build_system_prompt` in `agent.py`. As we iterate the prompt during dogfooding, this section may drift from the code — the code wins.
+
 ---
 
 ## 7. State model (SQLite tables)
