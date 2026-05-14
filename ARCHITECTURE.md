@@ -279,6 +279,7 @@ This section records the answers to questions raised during the v1 build review.
 The /whatsapp handler is non-blocking. Sequence:
 
 Validate Twilio HMAC signature (per §4.4; reject 403 on failure).
+Check db.inbound_message_exists(MessageSid). If True, return 200 OK with empty TwiML immediately — no further processing. This is the idempotency guarantee for Twilio retries (§3).
 Persist inbound message to conversations.
 Schedule the agent turn: task = asyncio.create_task(run_agent_turn(...)).
 Add the task to a module-level set _pending_tasks: set[asyncio.Task] and register task.add_done_callback(_pending_tasks.discard) to prevent garbage collection mid-flight.
