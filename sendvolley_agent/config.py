@@ -89,7 +89,7 @@ class Settings(BaseSettings):
     def _validate_twilio_sid(cls, v: str) -> str:
         if not _TWILIO_SID_RE.match(v):
             raise ValueError("must match Twilio account SID format '^AC[a-f0-9]{32}$' (case-insensitive)")
-        return v.lower()
+        return v.upper()
 
     @model_validator(mode="after")
     def _check_db_path_writeable(self) -> Settings:
