@@ -6,6 +6,25 @@ When Instantly data flows in, also include per-variant reply-rate history
 Open question: how much context until token costs become a concern? (Worker call is ~650 tokens in today; adding 2-4KB of client context = ~1000-2000 more)
 Open question: do we eventually move to per-client Worker prompts (§5 says no for v1, revisit at client #5)? Or stay with one global prompt + per-call context blocks?
 This is the moat. Design carefully.
+
+## Architectural decisions (not adopted)
+
+### Composio for third-party integrations — considered May 2026, rejected.
+
+**Considered:** Routing Apollo/Instantly/Bouncer calls through Composio's
+unified toolkit ($29-$149/mo) instead of writing per-vendor Python clients.
+
+**Rejected because:**
+- A shared Composio account breaks per-client isolation (§4.1).
+- Per-client Composio accounts add $29-$49/mo/client for thin API proxying.
+- Adds a 7th vendor concentrating two of the existing ones.
+- We control the abstraction shape today; tools/sendvolley.py pattern works.
+- API drift insurance value is low (Apollo/Instantly/Bouncer all have stable v1 APIs).
+
+**Reconsider if:** integrations expand beyond ~5 vendors, OAuth-based APIs
+appear in the mix, or maintenance burden actually materializes (>2 API
+breakages per year).
+
 # Backlog
 
 ## Pre-v2 (priority order)
