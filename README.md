@@ -59,6 +59,13 @@ Files must be built in dependency order, one focused session each. **Do not star
 9. `tools/apollo.py`
 10. `install/*` — provisioning scripts, only after everything above is working on the test VPS.
 
+- **v0.1 — DELIVERED (May 15, 2026)** — §10 success criterion met end-to-end:
+  Gianluzio DMs the agent on WhatsApp, receives Worker-generated cold email
+  variants within ~15 seconds. Stack: per-client Hetzner VPS, FastAPI behind
+  Caddy/Let's Encrypt, Twilio sandbox WhatsApp, SendVolley MCP Worker on
+  Cloudflare. Eight Anthropic tools still stubbed; generate_copy is the only
+  one wired in v0.1.
+
 ## License
 
 Private. Do not distribute.
